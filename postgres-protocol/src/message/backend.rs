@@ -22,6 +22,7 @@ pub const DATA_ROW_TAG: u8 = b'D';
 pub const ERROR_RESPONSE_TAG: u8 = b'E';
 pub const COPY_IN_RESPONSE_TAG: u8 = b'G';
 pub const COPY_OUT_RESPONSE_TAG: u8 = b'H';
+pub const COPY_BOTH_RESPONSE_TAG: u8 = b'W';
 pub const EMPTY_QUERY_RESPONSE_TAG: u8 = b'I';
 pub const BACKEND_KEY_DATA_TAG: u8 = b'K';
 pub const NO_DATA_TAG: u8 = b'n';
@@ -93,6 +94,7 @@ pub enum Message {
     CopyDone,
     CopyInResponse(CopyInResponseBody),
     CopyOutResponse(CopyOutResponseBody),
+    CopyBothResponse(CopyBothResponseBody),
     DataRow(DataRowBody),
     EmptyQueryResponse,
     ErrorResponse(ErrorResponseBody),
@@ -190,6 +192,16 @@ impl Message {
                     storage,
                 })
             }
+            COPY_BOTH_RESPONSE_TAG => {
+                let format = buf.read_u8()?;
+                let len = buf.read_u16::<BigEndian>()?;
+                let storage = buf.read_all();
+                Message::CopyBothResponse(CopyBothResponseBody {
+                    format,
+                    len,
+                    storage,
+                })
+            }
             EMPTY_QUERY_RESPONSE_TAG => Message::EmptyQueryResponse,
             BACKEND_KEY_DATA_TAG => {
                 let process_id = buf.read_i32::<BigEndian>()?;
@@ -278,9 +290,9 @@ impl Message {
     }
 }
 
-struct Buffer {
-    bytes: Bytes,
-    idx: usize,
+pub(crate) struct Buffer {
+    pub bytes: Bytes,
+    pub idx: usize,
 }
 
 impl Buffer {
@@ -295,7 +307,7 @@ impl Buffer {
     }
 
     #[inline]
-    fn read_cstr(&mut self) -> io::Result<Bytes> {
+    pub fn read_cstr(&mut self) -> io::Result<Bytes> {
         match memchr(0, self.slice()) {
             Some(pos) => {
                 let start = self.idx;
@@ -312,7 +324,7 @@ impl Buffer {
     }
 
     #[inline]
-    fn read_all(&mut self) -> Bytes {
+    pub fn read_all(&mut self) -> Bytes {
         let buf = self.bytes.slice(self.idx..);
         self.idx = self.bytes.len();
         buf
@@ -510,6 +522,27 @@ pub struct CopyOutResponseBody {
 }
 
 impl CopyOutResponseBody {
+    #[inline]
+    pub fn format(&self) -> u8 {
+        self.format
+    }
+
+    #[inline]
+    pub fn column_formats(&self) -> ColumnFormats<'_> {
+        ColumnFormats {
+            remaining: self.len,
+            buf: &self.storage,
+        }
+    }
+}
+
+pub struct CopyBothResponseBody {
+    storage: Bytes,
+    len: u16,
+    format: u8,
+}
+
+impl CopyBothResponseBody {
     #[inline]
     pub fn format(&self) -> u8 {
         self.format
@@ -886,6 +919,6 @@ fn find_null(buf: &[u8], start: usize) -> io::Result<usize> {
 }
 
 #[inline]
-fn get_str(buf: &[u8]) -> io::Result<&str> {
+pub(crate) fn get_str(buf: &[u8]) -> io::Result<&str> {
     str::from_utf8(buf).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))
 }

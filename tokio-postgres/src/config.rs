@@ -60,6 +60,16 @@ pub enum ChannelBinding {
     Require,
 }
 
+/// Replication mode configuration.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ReplicationMode {
+    /// Physical replication.
+    Physical,
+    /// Logical replication.
+    Logical,
+}
+
 /// Load balancing configuration.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -206,6 +216,7 @@ pub struct Config {
     pub(crate) keepalive_config: KeepaliveConfig,
     pub(crate) target_session_attrs: TargetSessionAttrs,
     pub(crate) channel_binding: ChannelBinding,
+    pub(crate) replication_mode: Option<ReplicationMode>,
     pub(crate) load_balance_hosts: LoadBalanceHosts,
 }
 
@@ -239,6 +250,7 @@ impl Config {
             },
             target_session_attrs: TargetSessionAttrs::Any,
             channel_binding: ChannelBinding::Prefer,
+            replication_mode: None,
             load_balance_hosts: LoadBalanceHosts::Disable,
         }
     }
@@ -511,6 +523,17 @@ impl Config {
         self.channel_binding
     }
 
+    /// Set replication mode.
+    pub fn replication_mode(&mut self, replication_mode: ReplicationMode) -> &mut Config {
+        self.replication_mode = Some(replication_mode);
+        self
+    }
+
+    /// Get replication mode.
+    pub fn get_replication_mode(&self) -> Option<ReplicationMode> {
+        self.replication_mode
+    }
+
     /// Sets the host load balancing behavior.
     ///
     /// Defaults to `disable`.
@@ -647,6 +670,17 @@ impl Config {
                 };
                 self.channel_binding(channel_binding);
             }
+            "replication" => {
+                let mode = match value {
+                    "off" => None,
+                    "true" => Some(ReplicationMode::Physical),
+                    "database" => Some(ReplicationMode::Logical),
+                    _ => return Err(Error::config_parse(Box::new(InvalidValue("replication")))),
+                };
+                if let Some(mode) = mode {
+                    self.replication_mode(mode);
+                }
+            }
             "load_balance_hosts" => {
                 let load_balance_hosts = match value {
                     "disable" => LoadBalanceHosts::Disable,
@@ -743,6 +777,7 @@ impl fmt::Debug for Config {
         config_dbg
             .field("target_session_attrs", &self.target_session_attrs)
             .field("channel_binding", &self.channel_binding)
+            .field("replication", &self.replication_mode)
             .finish()
     }
 }
