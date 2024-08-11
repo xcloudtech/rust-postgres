@@ -34,6 +34,8 @@ pub enum TargetSessionAttrs {
     Any,
     /// The session must allow writes.
     ReadWrite,
+    /// The session allow only reads.
+    ReadOnly,
 }
 
 /// TLS configuration.
@@ -200,7 +202,7 @@ pub enum Host {
 /// ```
 #[derive(Clone, PartialEq, Eq)]
 pub struct Config {
-    pub(crate) user: String,
+    pub(crate) user: Option<String>,
     pub(crate) password: Option<Vec<u8>>,
     pub(crate) dbname: Option<String>,
     pub(crate) options: Option<String>,
@@ -230,7 +232,7 @@ impl Config {
     /// Creates a new configuration.
     pub fn new() -> Config {
         Config {
-            user: whoami::username(),
+            user: None,
             password: None,
             dbname: None,
             options: None,
@@ -258,19 +260,15 @@ impl Config {
     /// Sets the user to authenticate with.
     ///
     /// Defaults to the user executing this process.
-    pub fn user(&mut self, user: &str) -> &mut Config {
-        self.user = user.to_string();
+    pub fn user(&mut self, user: impl Into<String>) -> &mut Config {
+        self.user = Some(user.into());
         self
     }
 
-    /// Gets the user to authenticate with.
-    ///
-    /// If no user has been configured with the [`user`](Config::user) method,
-    /// then this defaults to the user executing this process. It always
-    /// returns `Some`.
-    // FIXME remove option
+    /// Gets the user to authenticate with, if one has been configured with
+    /// the `user` method.
     pub fn get_user(&self) -> Option<&str> {
-        Some(&self.user)
+        self.user.as_deref()
     }
 
     /// Sets the password to authenticate with.
@@ -291,8 +289,8 @@ impl Config {
     /// Sets the name of the database to connect to.
     ///
     /// Defaults to the user.
-    pub fn dbname(&mut self, dbname: &str) -> &mut Config {
-        self.dbname = Some(dbname.to_string());
+    pub fn dbname(&mut self, dbname: impl Into<String>) -> &mut Config {
+        self.dbname = Some(dbname.into());
         self
     }
 
@@ -303,8 +301,8 @@ impl Config {
     }
 
     /// Sets command line options used to configure the server.
-    pub fn options(&mut self, options: &str) -> &mut Config {
-        self.options = Some(options.to_string());
+    pub fn options(&mut self, options: impl Into<String>) -> &mut Config {
+        self.options = Some(options.into());
         self
     }
 
@@ -315,8 +313,8 @@ impl Config {
     }
 
     /// Sets the value of the `application_name` runtime parameter.
-    pub fn application_name(&mut self, application_name: &str) -> &mut Config {
-        self.application_name = Some(application_name.to_string());
+    pub fn application_name(&mut self, application_name: impl Into<String>) -> &mut Config {
+        self.application_name = Some(application_name.into());
         self
     }
 
@@ -344,7 +342,9 @@ impl Config {
     /// Multiple hosts can be specified by calling this method multiple times, and each will be tried in order. On Unix
     /// systems, a host starting with a `/` is interpreted as a path to a directory containing Unix domain sockets.
     /// There must be either no hosts, or the same number of hosts as hostaddrs.
-    pub fn host(&mut self, host: &str) -> &mut Config {
+    pub fn host(&mut self, host: impl Into<String>) -> &mut Config {
+        let host = host.into();
+
         #[cfg(unix)]
         {
             if host.starts_with('/') {
@@ -352,7 +352,7 @@ impl Config {
             }
         }
 
-        self.host.push(Host::Tcp(host.to_string()));
+        self.host.push(Host::Tcp(host));
         self
     }
 
@@ -649,6 +649,7 @@ impl Config {
                 let target_session_attrs = match value {
                     "any" => TargetSessionAttrs::Any,
                     "read-write" => TargetSessionAttrs::ReadWrite,
+                    "read-only" => TargetSessionAttrs::ReadOnly,
                     _ => {
                         return Err(Error::config_parse(Box::new(InvalidValue(
                             "target_session_attrs",
@@ -1026,7 +1027,7 @@ impl<'a> UrlParser<'a> {
 
         let mut it = creds.splitn(2, ':');
         let user = self.decode(it.next().unwrap())?;
-        self.config.user(&user);
+        self.config.user(user);
 
         if let Some(password) = it.next() {
             let password = Cow::from(percent_encoding::percent_decode(password.as_bytes()));
@@ -1089,7 +1090,7 @@ impl<'a> UrlParser<'a> {
         };
 
         if !dbname.is_empty() {
-            self.config.dbname(&self.decode(dbname)?);
+            self.config.dbname(self.decode(dbname)?);
         }
 
         Ok(())
